@@ -2,6 +2,11 @@
 
 inherits: /canonic/
 
+<!-- O∩E∩T = Operational + Evidential + Temporal -->
+<!-- EMAIL executes (O) send operations -->
+<!-- Every email logged (E) with timestamp (T) -->
+<!-- The LEDGER is the settlement layer -->
+
 ---
 
 ## Purpose
