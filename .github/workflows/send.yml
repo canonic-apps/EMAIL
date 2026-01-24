@@ -1,0 +1,116 @@
+name: Send Email
+
+on:
+  workflow_dispatch:
+    inputs:
+      to:
+        description: 'Recipient email'
+        required: true
+        type: string
+      template:
+        description: 'Template name (without .md)'
+        required: true
+        type: string
+
+jobs:
+  validate:
+    uses: ./.github/workflows/email.audit.yml
+    with:
+      to: ${{ inputs.to }}
+      subject: "From template"
+      template: ${{ inputs.template }}
+
+  send:
+    needs: validate
+    if: needs.validate.outputs.status == 'pass'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install msal requests
+
+      - name: Send Email
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          python -c "
+          import os
+          import json
+          import requests
+          import msal
+
+          # Load template
+          template_path = f'templates/${{ inputs.template }}.md'
+          with open(template_path) as f:
+              content = f.read()
+
+          lines = content.split('\n')
+          subject = 'CANONIC'
+          body_start = 0
+          if lines[0].lower().startswith('subject:'):
+              subject = lines[0].split(':', 1)[1].strip()
+              body_start = 2 if lines[1].strip() == '' else 1
+          body = '\n'.join(lines[body_start:])
+
+          # Get token via client credentials
+          app = msal.ConfidentialClientApplication(
+              os.environ['AZURE_CLIENT_ID'],
+              authority=f\"https://login.microsoftonline.com/{os.environ['AZURE_TENANT_ID']}\",
+              client_credential=os.environ['AZURE_CLIENT_SECRET']
+          )
+          result = app.acquire_token_for_client(scopes=['https://graph.microsoft.com/.default'])
+
+          if 'access_token' not in result:
+              print(f\"Auth failed: {result.get('error_description')}\")
+              exit(1)
+
+          # Send email
+          response = requests.post(
+              'https://graph.microsoft.com/v1.0/users/dexter.hadley@outlook.com/sendMail',
+              headers={
+                  'Authorization': f\"Bearer {result['access_token']}\",
+                  'Content-Type': 'application/json'
+              },
+              json={
+                  'message': {
+                      'subject': subject,
+                      'body': {'contentType': 'Text', 'content': body},
+                      'toRecipients': [{'emailAddress': {'address': '${{ inputs.to }}'}}]
+                  },
+                  'saveToSentItems': True
+              }
+          )
+
+          if response.status_code == 202:
+              print('EMAIL SENT')
+              print(f'To: ${{ inputs.to }}')
+              print(f'Subject: {subject}')
+          else:
+              print(f'ERROR: {response.status_code} - {response.text}')
+              exit(1)
+          "
+
+      - name: Log to sent/
+        run: |
+          mkdir -p sent
+          echo '{
+            "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+            "to": "${{ inputs.to }}",
+            "template": "${{ inputs.template }}",
+            "status": "sent",
+            "github_run": "${{ github.run_id }}"
+          }' > sent/$(date -u +%Y%m%d-%H%M%S)-${{ inputs.to }}.json
+
+          git config user.name "CANONIC EMAIL"
+          git config user.email "email@canonic.org"
+          git add sent/
+          git commit -m "audit: email sent to ${{ inputs.to }}"
+          git push

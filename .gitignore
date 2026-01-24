@@ -1,0 +1,16 @@
+# Credentials - NEVER commit
+.token_cache.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

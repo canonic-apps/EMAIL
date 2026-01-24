@@ -1,0 +1,47 @@
+name: email.audit
+
+on:
+  workflow_call:
+    inputs:
+      to:
+        required: true
+        type: string
+      subject:
+        required: true
+        type: string
+      template:
+        required: false
+        type: string
+    outputs:
+      status:
+        description: "Validation result"
+        value: ${{ jobs.validate.outputs.status }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.audit.outputs.status }}
+    steps:
+      - name: Audit Check
+        id: audit
+        run: |
+          echo "Validating audit trail..."
+          echo "To: ${{ inputs.to }}"
+          echo "Subject: ${{ inputs.subject }}"
+
+          # Validate required fields
+          if [ -z "${{ inputs.to }}" ]; then
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "reason=Missing recipient" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          if [ -z "${{ inputs.subject }}" ]; then
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "reason=Missing subject" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "status=pass" >> $GITHUB_OUTPUT
+          echo "Audit validation passed"

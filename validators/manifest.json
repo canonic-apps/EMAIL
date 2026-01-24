@@ -1,0 +1,43 @@
+{
+  "app": "EMAIL",
+  "version": "1.0.0",
+  "canon": "../CANON.md",
+  "validators": [
+    {
+      "id": "email.audit",
+      "version": "1.0.0",
+      "enforces": "Axiom 2",
+      "trigger": "before_send",
+      "required": true
+    },
+    {
+      "id": "email.template",
+      "version": "1.0.0",
+      "enforces": "Axiom 3",
+      "trigger": "on_template_load",
+      "required": true
+    },
+    {
+      "id": "email.credential",
+      "version": "1.0.0",
+      "enforces": "Axiom 5",
+      "trigger": "on_token_access",
+      "required": true
+    },
+    {
+      "id": "email.recipient",
+      "version": "1.0.0",
+      "enforces": "Domain allowlist",
+      "trigger": "before_send",
+      "required": false
+    },
+    {
+      "id": "email.ratelimit",
+      "version": "1.0.0",
+      "enforces": "Abuse prevention",
+      "trigger": "before_send",
+      "required": true
+    }
+  ],
+  "signature": null
+}
