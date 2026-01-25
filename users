@@ -1,0 +1,314 @@
+#!/bin/bash
+# CANONIC USERS — Email Routing Automation
+# Manages {user}@canonic.org routing via Cloudflare API
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZONE_ID="f35680536c20b7a0571ad1d69fe4faaa"
+ACCOUNT_ID="73a7cdd5a8be98f45816da1c87b7518a"
+
+# Auth: Either API Token OR Global API Key + Email
+# Token: CF_EMAIL_TOKEN (scoped)
+# Global: CF_API_KEY + CF_API_EMAIL (full access)
+# Credentials stored in ~/.canonic/cloudflare
+
+CANONIC_DIR="$HOME/.canonic"
+CREDS_FILE="$CANONIC_DIR/cloudflare"
+
+# Load credentials if they exist
+if [ -f "$CREDS_FILE" ]; then
+    source "$CREDS_FILE"
+fi
+
+API_TOKEN="${CF_EMAIL_TOKEN:-}"
+API_KEY="${CF_API_KEY:-}"
+API_EMAIL="${CF_API_EMAIL:-}"
+
+usage() {
+    cat << EOF
+CANONIC USERS — Email Routing
+
+Usage: ./users <command> [options]
+
+Commands:
+  list              List all email routes
+  add <user> <dest> Add route: user@canonic.org → dest
+  remove <user>     Remove user's route
+  sync              Sync from USERS.md registry
+
+Examples:
+  ./users list
+  ./users add hadley dexter.hadley@canonic.org
+  ./users add adventhealth adventhealth-team@canonic.org
+  ./users sync
+
+Environment:
+  CF_EMAIL_TOKEN    Cloudflare API token with email routing permissions
+
+Setup:
+  1. Go to https://dash.cloudflare.com/profile/api-tokens
+  2. Create token with:
+     - Zone: Email Routing Rules: Edit
+     - Account: Email Routing Addresses: Edit
+  3. Export CF_EMAIL_TOKEN="your-token"
+EOF
+}
+
+check_token() {
+    if [ -n "$API_TOKEN" ]; then
+        AUTH_HEADER="Authorization: Bearer $API_TOKEN"
+        AUTH_TYPE="token"
+    elif [ -n "$API_KEY" ] && [ -n "$API_EMAIL" ]; then
+        AUTH_TYPE="global"
+    else
+        echo "ERROR: No authentication configured"
+        echo "Option 1: export CF_EMAIL_TOKEN='your-api-token'"
+        echo "Option 2: export CF_API_KEY='global-key' CF_API_EMAIL='email'"
+        exit 1
+    fi
+}
+
+get_auth_headers() {
+    if [ "$AUTH_TYPE" = "token" ]; then
+        echo "-H \"Authorization: Bearer $API_TOKEN\""
+    else
+        echo "-H \"X-Auth-Key: $API_KEY\" -H \"X-Auth-Email: $API_EMAIL\""
+    fi
+}
+
+list_routes() {
+    check_token
+    echo "=== Email Routes for canonic.org ==="
+    if [ "$AUTH_TYPE" = "token" ]; then
+        curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+            -H "Authorization: Bearer $API_TOKEN" \
+            -H "Content-Type: application/json"
+    else
+        curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+            -H "X-Auth-Key: $API_KEY" \
+            -H "X-Auth-Email: $API_EMAIL" \
+            -H "Content-Type: application/json"
+    fi | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if not data.get('success'):
+    print('Error:', data.get('errors', []))
+    sys.exit(1)
+for rule in data.get('result', []):
+    matchers = rule.get('matchers', [{}])[0].get('value', 'unknown')
+    actions = rule.get('actions', [{}])[0].get('value', ['unknown'])
+    print(f'  {matchers} → {actions[0] if actions else \"unknown\"}')"
+}
+
+add_route() {
+    check_token
+    local user="$1"
+    local dest="$2"
+
+    if [ -z "$user" ] || [ -z "$dest" ]; then
+        echo "Usage: ./users add <user> <dest>"
+        exit 1
+    fi
+
+    echo "Adding route: ${user}@canonic.org → ${dest}"
+
+    if [ "$AUTH_TYPE" = "token" ]; then
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+            -H "Authorization: Bearer $API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "{
+                \"name\": \"CANONIC USER: $user\",
+                \"enabled\": true,
+                \"matchers\": [{
+                    \"type\": \"literal\",
+                    \"field\": \"to\",
+                    \"value\": \"${user}@canonic.org\"
+                }],
+                \"actions\": [{
+                    \"type\": \"forward\",
+                    \"value\": [\"$dest\"]
+                }]
+            }"
+    else
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+            -H "X-Auth-Key: $API_KEY" \
+            -H "X-Auth-Email: $API_EMAIL" \
+            -H "Content-Type: application/json" \
+            --data "{
+                \"name\": \"CANONIC USER: $user\",
+                \"enabled\": true,
+                \"matchers\": [{
+                    \"type\": \"literal\",
+                    \"field\": \"to\",
+                    \"value\": \"${user}@canonic.org\"
+                }],
+                \"actions\": [{
+                    \"type\": \"forward\",
+                    \"value\": [\"$dest\"]
+                }]
+            }"
+    fi | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if data.get('success'):
+    print('✓ Route added successfully')
+else:
+    print('Error:', data.get('errors', []))"
+}
+
+remove_route() {
+    check_token
+    local user="$1"
+
+    if [ -z "$user" ]; then
+        echo "Usage: ./users remove <user>"
+        exit 1
+    fi
+
+    echo "Finding rule for ${user}@canonic.org..."
+
+    # Find the rule ID first
+    RULE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" | \
+        python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for rule in data.get('result', []):
+    matchers = rule.get('matchers', [{}])[0].get('value', '')
+    if matchers == '${user}@canonic.org':
+        print(rule.get('tag', ''))
+        break")
+
+    if [ -z "$RULE_ID" ]; then
+        echo "Rule not found for ${user}@canonic.org"
+        exit 1
+    fi
+
+    echo "Removing rule $RULE_ID..."
+    curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules/$RULE_ID" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if data.get('success'):
+    print('✓ Route removed')
+else:
+    print('Error:', data.get('errors', []))"
+}
+
+sync_from_registry() {
+    check_token
+    local registry="$SCRIPT_DIR/../../../USERS.md"
+
+    if [ ! -f "$registry" ]; then
+        echo "ERROR: USERS.md not found at $registry"
+        exit 1
+    fi
+
+    echo "=== Syncing from USERS.md ==="
+    # Parse users from registry and sync routes
+    # This is a placeholder - needs to parse the actual format
+    echo "TODO: Parse USERS.md and sync routes"
+    echo "For now, use: ./users add <user> <dest>"
+}
+
+setup_token() {
+    echo "=== CLOUDFLARE EMAIL SETUP ==="
+    mkdir -p "$CANONIC_DIR"
+    chmod 700 "$CANONIC_DIR"
+
+    echo ""
+    echo "Using Global API Key (full access)"
+    echo ""
+    read -p "Global API Key: " api_key
+    read -p "Cloudflare Email: " api_email
+
+    if [ -n "$api_key" ] && [ -n "$api_email" ]; then
+        cat > "$CREDS_FILE" << EOF
+# CANONIC Cloudflare Credentials
+export CF_API_KEY="$api_key"
+export CF_API_EMAIL="$api_email"
+EOF
+        chmod 600 "$CREDS_FILE"
+        source "$CREDS_FILE"
+        API_KEY="$api_key"
+        API_EMAIL="$api_email"
+        AUTH_TYPE="global"
+        echo ""
+        echo "Saved to ~/.canonic/cloudflare"
+        echo "Testing connection..."
+        list_routes
+    fi
+}
+
+bootstrap() {
+    check_token
+    echo "=== BOOTSTRAPPING CANONIC EMAIL ROUTES ==="
+
+    # Add catch-all for canonic@canonic.org
+    echo "Adding: canonic@canonic.org → dexter.hadley@gmail.com"
+    add_route "canonic" "dexter.hadley@gmail.com"
+
+    # Add CANONIC (uppercase variant)
+    echo "Adding: CANONIC@canonic.org → dexter.hadley@gmail.com"
+    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data "{
+            \"name\": \"CANONIC USER: CANONIC\",
+            \"enabled\": true,
+            \"matchers\": [{
+                \"type\": \"literal\",
+                \"field\": \"to\",
+                \"value\": \"CANONIC@canonic.org\"
+            }],
+            \"actions\": [{
+                \"type\": \"forward\",
+                \"value\": [\"dexter.hadley@gmail.com\"]
+            }]
+        }" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if data.get('success'):
+    print('✓ Route added')
+else:
+    print('Error:', data.get('errors', []))"
+
+    # Add foundation
+    echo "Adding: foundation@canonic.org → dexter.hadley@gmail.com"
+    add_route "foundation" "dexter.hadley@gmail.com"
+
+    # Add hadley
+    echo "Adding: hadley@canonic.org → dexter.hadley@gmail.com"
+    add_route "hadley" "dexter.hadley@gmail.com"
+
+    echo ""
+    echo "=== BOOTSTRAP COMPLETE ==="
+    list_routes
+}
+
+case "${1:-}" in
+    list)
+        list_routes
+        ;;
+    add)
+        add_route "$2" "$3"
+        ;;
+    remove)
+        remove_route "$2"
+        ;;
+    sync)
+        sync_from_registry
+        ;;
+    setup)
+        setup_token
+        ;;
+    bootstrap)
+        bootstrap
+        ;;
+    *)
+        usage
+        ;;
+esac
