@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 import sys
 sys.path.insert(0, '$HOME/Library/Python/3.9/lib/python/site-packages')
 sys.argv = ['email.py'] + sys.argv[1:]
-script_path = '$SCRIPT_DIR/email.py'
+script_path = '$SCRIPT_DIR/canonic_email.py'
 with open(script_path) as f:
     code = f.read()
 exec(compile(code, script_path, 'exec'), {'__name__': '__main__', '__file__': script_path})

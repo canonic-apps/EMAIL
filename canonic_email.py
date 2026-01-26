@@ -205,6 +205,80 @@ def view_log():
     print()
 
 
+def read_inbox(config: dict, count: int = 10, query: str = None):
+    """Read emails from inbox via Microsoft Graph API."""
+    token = get_access_token(config)
+    if not token:
+        return None
+
+    endpoint = f"{GRAPH_ENDPOINT}/me/messages"
+    params = {
+        "$top": count,
+        "$orderby": "receivedDateTime desc",
+        "$select": "id,subject,from,receivedDateTime,bodyPreview,isRead"
+    }
+
+    if query:
+        params["$filter"] = f"contains(subject, '{query}') or contains(from/emailAddress/address, '{query}')"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.get(endpoint, headers=headers, params=params)
+
+    if response.status_code == 200:
+        messages = response.json().get("value", [])
+        return messages
+    else:
+        print(f"ERROR: {response.status_code} - {response.text}")
+        return None
+
+
+def read_message(config: dict, message_id: str):
+    """Read a specific email message."""
+    token = get_access_token(config)
+    if not token:
+        return None
+
+    endpoint = f"{GRAPH_ENDPOINT}/me/messages/{message_id}"
+    params = {"$select": "id,subject,from,toRecipients,receivedDateTime,body,isRead"}
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.get(endpoint, headers=headers, params=params)
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"ERROR: {response.status_code} - {response.text}")
+        return None
+
+
+def display_inbox(messages):
+    """Display inbox messages."""
+    if not messages:
+        print("No messages found.")
+        return
+
+    print("\n" + "="*80)
+    print("INBOX")
+    print("="*80)
+    for i, msg in enumerate(messages):
+        from_addr = msg.get("from", {}).get("emailAddress", {}).get("address", "unknown")
+        subject = msg.get("subject", "(no subject)")[:50]
+        date = msg.get("receivedDateTime", "")[:16].replace("T", " ")
+        read_status = "" if msg.get("isRead") else "●"
+        print(f"{read_status:2} {i+1:2}. {date} | {from_addr:30} | {subject}")
+    print("="*80)
+    print(f"\nUse: ./email.py read --id <message_id> to view full message")
+    print()
+
+
 def setup():
     """Interactive setup for Azure AD app."""
     print("\n" + "="*60)
@@ -273,6 +347,15 @@ Examples:
     send_parser.add_argument("--subject", help="Email subject")
     send_parser.add_argument("--body", help="Email body")
 
+    # inbox command
+    inbox_parser = subparsers.add_parser("inbox", help="Read inbox messages")
+    inbox_parser.add_argument("--count", type=int, default=10, help="Number of messages")
+    inbox_parser.add_argument("--query", help="Filter by subject or sender")
+
+    # read command
+    read_parser = subparsers.add_parser("read", help="Read a specific message")
+    read_parser.add_argument("--id", required=True, help="Message ID")
+
     # other commands
     subparsers.add_parser("templates", help="List available templates")
     subparsers.add_parser("log", help="View sent email log")
@@ -297,6 +380,36 @@ Examples:
 
     if args.command == "log":
         view_log()
+        return
+
+    if args.command == "inbox":
+        config = load_config()
+        if not config:
+            print("ERROR: Run ./email.py setup first")
+            return
+        messages = read_inbox(config, args.count, args.query)
+        display_inbox(messages)
+        return
+
+    if args.command == "read":
+        config = load_config()
+        if not config:
+            print("ERROR: Run ./email.py setup first")
+            return
+        msg = read_message(config, args.id)
+        if msg:
+            print("\n" + "="*80)
+            print(f"From:    {msg.get('from', {}).get('emailAddress', {}).get('address', 'unknown')}")
+            print(f"Subject: {msg.get('subject', '(no subject)')}")
+            print(f"Date:    {msg.get('receivedDateTime', '')}")
+            print("="*80)
+            body = msg.get("body", {}).get("content", "")
+            # Strip HTML if present
+            if "<html" in body.lower():
+                import re
+                body = re.sub('<[^<]+?>', '', body)
+            print(body[:2000])
+            print("="*80)
         return
 
     if args.command == "send":
