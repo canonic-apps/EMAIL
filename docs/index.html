@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMAIL | CANONIC</title>
+    <link rel="stylesheet" href="https://canonic-foundation.github.io/assets/style.css">
+</head>
+<body>
+    <nav class="topnav">
+        <a href="https://canonic-apps.github.io" class="topnav-brand">&#8745;</a>
+        <div class="topnav-links">
+            <a href="https://canonic-foundation.github.io">Foundation</a>
+            <a href="https://canonic-apps.github.io">Apps</a>
+            <a href="./" class="active">Email</a>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="symbol">&#8745;</div>
+        <h1>EMAIL</h1>
+        <p class="tagline">Governed email. Every send logged to LEDGER.</p>
+        <span class="badge">OFFICE APP</span>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">CORE LOOP</h2>
+        <div class="flow">
+            <span class="flow-item">COMPOSE</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-item active">VALIDATE</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-item">SEND</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-item">LEDGER</span>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">GOVERNANCE</h2>
+        <div class="grid">
+            <div class="card">
+                <h3>Microsoft Graph</h3>
+                <p>OAuth2 integration with Microsoft 365. Secure authenticated access.</p>
+            </div>
+            <div class="card">
+                <h3>Immutable Log</h3>
+                <p>Every email send is logged to LEDGER. Full audit trail.</p>
+            </div>
+            <div class="card">
+                <h3>Domain Validation</h3>
+                <p>Validates governance constraints before send.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">SETUP</h2>
+        <article>
+            <p>EMAIL requires Microsoft 365 authentication via Azure AD app registration.</p>
+            <ol>
+                <li>Register app in Azure Portal</li>
+                <li>Configure Mail.Send permissions</li>
+                <li>Run <code>python auth.py</code> to authenticate</li>
+                <li>Use <code>python canonic_email.py</code> to send governed email</li>
+            </ol>
+        </article>
+    </section>
+
+    <footer>
+        <p><a href="https://canonic-foundation.github.io">Foundation</a> | <a href="https://github.com/canonic-apps/EMAIL">GitHub</a></p>
+        <p>Governed communication. Evidence trail.</p>
+    </footer>
+
+    <script src="https://canonic-foundation.github.io/assets/nav.js"></script>
+</body>
+</html>
